@@ -1,0 +1,40 @@
+parameters:
+  - name: ComponentId
+    type: string
+  - name: BuildConfiguration
+    type: string
+    default: "release"
+  - name: SolutionPath
+    type: string
+  - name: NugetConfigPath
+    type: string
+  - name: SonarQubeProjectKey
+    type: string
+  - name: SonarQubeServiceConnection
+    type: string
+    default: "nlst-sonar"
+
+steps:
+  - template: ../steps/Prepare-SonarQube.yml
+    parameters:
+      SonarQubeProjectKey: ${{ parameters.SonarQubeProjectKey }}
+      SonarQubeServiceConnection: ${{ parameters.SonarQubeServiceConnection }}
+
+  - template: ../steps/Restore-NuGet-Packages.yml
+    parameters:
+      Projects: ${{ parameters.SolutionPath }}
+      NugetConfigPath: ${{ parameters.NugetConfigPath }}
+
+  - template: ../steps/Build.yml
+    parameters:
+      SolutionFilePath: "src/Bof.Boflex.Core.${{ parameters.ComponentId }}/Bof.Boflex.Core.${{ parameters.ComponentId }}/Bof.Boflex.Core.${{ parameters.ComponentId }}.csproj"
+      Configuration: ${{ parameters.BuildConfiguration }}
+
+  - template: ../steps/Test.yml
+    parameters:
+      ProjectsFilter: "src/Bof.Boflex.Core.${{ parameters.ComponentId }}/Bof.Boflex.Core.${{ parameters.ComponentId }}.Test/Bof.Boflex.Core.${{ parameters.ComponentId }}.Test.csproj"
+      Configuration: ${{ parameters.BuildConfiguration }}
+      DisplayPrefix: "Unit "
+      CoverageOutputFile: "coverage-unit.xml"
+
+  - template: ../steps/Analyze-Publish-SonarQubeResults.yml
