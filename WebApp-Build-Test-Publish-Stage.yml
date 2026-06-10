@@ -1,0 +1,152 @@
+parameters:
+  - name: ComponentId
+    type: string
+  - name: SolutionPath
+    type: string
+  - name: NugetConfigPath
+    type: string
+  - name: BuildConfiguration
+    type: string
+    default: "release"
+  - name: FunctionComponentId
+    type: string
+    default: ""
+  - name: SonarQubeProjectKey
+    type: string
+  - name: SonarQubeServiceConnection
+    type: string
+    default: "nlst-sonar"
+  - name: SkipCodeQualityChecks
+    type: boolean
+    default: false
+  - name: TargetFramework
+    type: string
+    default: "net8.0"
+  - name: LowerComponentId
+    type: string
+  - name: Environment
+    type: string
+  - name: DevOpsServiceConnection
+    type: string
+  - name: ScriptPath
+    type: string
+    default: '$(Agent.BuildDirectory)\shared\scripts'
+
+
+stages:
+  - stage: "Build"
+    displayName: "Build ${{ parameters.ComponentId }} component REST API and Db package"
+    jobs:
+      - job: "Build"
+        steps:
+          - checkout: shared
+            path: shared
+          - checkout: self
+            path: s
+            fetchDepth: 0
+
+          ##
+          #- template: ../jobs/WebApp-Build-Job.yml
+          ##
+          - ${{ if ne(parameters.SkipCodeQualityChecks, true) }}:
+            - template: ../steps/Prepare-SonarQube.yml
+              parameters:
+                SonarQubeProjectKey: ${{ parameters.SonarQubeProjectKey }}
+                SonarQubeServiceConnection: ${{ parameters.SonarQubeServiceConnection }}
+        
+          - template: ../steps/Restore-NuGet-Packages.yml
+            parameters:
+              Projects: ${{ parameters.SolutionPath }}
+              NugetConfigPath: ${{ parameters.NugetConfigPath }}
+        
+          - template: ../steps/Build.yml
+            parameters:
+              SolutionFilePath: "src/Bof.Boflex.Core.${{ parameters.ComponentId }}/Bof.Boflex.Core.${{ parameters.ComponentId }}/Bof.Boflex.Core.${{ parameters.ComponentId }}.csproj"
+              Configuration: ${{ parameters.BuildConfiguration }}
+        
+          - ${{ if ne(parameters.FunctionComponentId, '') }}:
+            - template: ../steps/Build.yml
+              parameters:
+                SolutionFilePath: "src/Bof.Boflex.Core.${{ parameters.ComponentId }}/Bof.Boflex.Core.${{ parameters.ComponentId }}.${{ parameters.FunctionComponentId }}/Bof.Boflex.Core.${{ parameters.ComponentId }}.${{ parameters.FunctionComponentId }}.csproj"
+                Configuration: ${{ parameters.BuildConfiguration }}
+
+          ##
+          #- template: ../jobs/WebApp-Test-Publish-Job.yml
+          ##
+          - ${{ if ne(parameters.SkipCodeQualityChecks, true) }}:
+            - template: ../steps/Test.yml
+              parameters:
+                ProjectsFilter: "src/Bof.Boflex.Core.${{ parameters.ComponentId }}/Bof.Boflex.Core.${{ parameters.ComponentId }}.Test/Bof.Boflex.Core.${{ parameters.ComponentId }}.Test.csproj"
+                Configuration: ${{ parameters.BuildConfiguration }}
+                DisplayPrefix: "Unit "
+                CoverageOutputFile: "coverage-unit.xml"
+
+            - ${{ if in(parameters.Environment, 'dev', 'test') }}:
+                - template: ../steps/Test.yml
+                  parameters:
+                    ProjectsFilter: "src/Bof.Boflex.Core.${{ parameters.ComponentId }}/Bof.Boflex.Core.${{ parameters.ComponentId }}.IntegrationTest/Bof.Boflex.Core.${{ parameters.ComponentId }}.IntegrationTest.csproj"
+                    Configuration: ${{ parameters.BuildConfiguration }}
+                    DisplayPrefix: "Integration "
+                    DevOpsServiceConnection: ${{ parameters.DevOpsServiceConnection }}
+                    CoverageOutputFile: "coverage-integration.xml"
+                    Arguments: '-e DbConnectionString="Server=tcp:sql-bof-core-boflex-${{ parameters.Environment }}.database.windows.net,1433;Initial Catalog=sqldb-bof-core-boflex-integration;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;Authentication=Active Directory Default;"'
+
+          - ${{ if ne(parameters.SkipCodeQualityChecks, true) }}:
+            - template: ../steps/Analyze-Publish-SonarQubeResults.yml
+
+          - template: ../steps/DetermineVersion.yml
+            parameters:
+              ComponentId: ${{ parameters.ComponentId }}
+              Appendix: ".Db"
+              fullVersion: 1 # =true
+              OutputVar: dbPackageVersion
+              ScriptPath: ${{ parameters.ScriptPath }}
+              BuildConfiguration: ${{ parameters.BuildConfiguration }}
+              TargetFramework: ${{ parameters.TargetFramework }}
+          
+          - template: ../steps/DetermineVersion.yml
+            parameters:
+              ComponentId: ${{ parameters.ComponentId }}
+              OutputVar: componentVersion
+              ScriptPath: ${{ parameters.ScriptPath }}
+              BuildConfiguration: ${{ parameters.BuildConfiguration }}
+              TargetFramework: ${{ parameters.TargetFramework }}
+          
+          - script: "dotnet nuget update source bof-boflex"
+            displayName: "Update bo*flex package feed"
+          
+          - script: "dotnet pack src/Bof.Boflex.Core.${{ parameters.ComponentId }}/Bof.Boflex.Core.${{ parameters.ComponentId }}.Db/Bof.Boflex.Core.${{ parameters.ComponentId }}.Db.csproj -c Release -o $(Build.ArtifactStagingDirectory) -v detailed --include-symbols --include-source"
+            displayName: "Pack Db library"
+          
+          - template: ../steps/Publish.yml
+            parameters:
+              BuildConfiguration: ${{ parameters.BuildConfiguration }}
+              OutputPath: "$(Build.ArtifactStagingDirectory)"
+          
+          - template: ../steps/Generate-OpenAPISpec.yml
+            parameters:
+              ProjectsFilter: "src/Bof.Boflex.Core.${{ parameters.ComponentId }}/Bof.Boflex.Core.${{ parameters.ComponentId }}"
+              BuildConfiguration: ${{ parameters.BuildConfiguration }}
+              LowerComponentId: ${{ parameters.LowerComponentId }}
+              ComponentId: ${{ parameters.ComponentId }}
+              ComponentVersion: v$(componentVersion)
+              TargetFramework: ${{ parameters.TargetFramework }}
+          
+          - template: ../steps/Publish-Artifact.yml
+            parameters:
+              FileOrFolder: $(Build.ArtifactStagingDirectory)/Bof.Boflex.Core.${{ parameters.ComponentId }}.zip
+              ArtifactName: "${{ parameters.ComponentId }}RestApi"
+          
+          - template: ../steps/Minify-Json.yml
+            parameters:
+              Filepath: "$(Build.ArtifactStagingDirectory)/${{ parameters.LowerComponentId }}.openapi+json.json"
+          
+          - template: ../steps/Publish-Artifact.yml
+            parameters:
+              FileOrFolder: $(Build.ArtifactStagingDirectory)/${{ parameters.LowerComponentId }}.openapi+json.json
+              ArtifactName: "${{ parameters.ComponentId }}OpenApiSpec"
+          
+          - template: ../steps/Publish-Artifact.yml
+            parameters:
+              FileOrFolder: $(Build.ArtifactStagingDirectory)/Bof.Boflex.Core.${{ parameters.ComponentId }}.Db.$(dbPackageVersion).nupkg
+              ArtifactName: "${{ parameters.ComponentId }}Db"
