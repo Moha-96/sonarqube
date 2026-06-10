@@ -1,0 +1,61 @@
+parameters:
+  - name: ProjectsFilter
+    type: string
+  - name: Configuration
+    type: string
+  - name: Arguments
+    type: string
+    default: ""
+  - name: DisplayPrefix
+    type: string
+    default: ""
+  - name: DevOpsServiceConnection
+    type: string
+    default: ""
+  - name: CoverageOutputFile
+    type: string
+    default: "coverage.xml"
+
+steps:
+  # start test infrastructure for integration tests (e.g. ReqnRoll)
+
+
+  - script: docker version
+    displayName: 'Verify Docker'
+
+  - script: docker compose -f src/docker-compose.yml up -d
+    displayName: 'Start test environment (Docker Compose)'
+
+  - script: |
+      echo "Waiting for containers to be ready..."
+      timeout /t 30
+    displayName: 'Wait for containers to be ready'
+
+  - script: docker ps
+    displayName: 'Debug running containers'
+
+  - task: DotNetCoreCLI@2
+    displayName: '${{ parameters.DisplayPrefix }}Test with Coverage ${{ parameters.ProjectsFilter }}'
+    inputs:
+      command: test
+      projects: ${{ parameters.ProjectsFilter }}
+      arguments: >
+        --configuration ${{ parameters.Configuration }}
+        --collect:"XPlat Code Coverage"
+        --logger trx
+        --results-directory $(Agent.TempDirectory)
+        ${{ parameters.Arguments }}
+
+  - task: PublishTestResults@2
+    displayName: 'Publish Test Results'
+    inputs:
+      testResultsFormat: 'VSTest'
+      testResultsFiles: '*.trx'
+      searchFolder: '$(Agent.TempDirectory)'
+
+  # stop test infrastructure 
+
+
+  - script: docker compose -f src/docker-compose.yml down
+    displayName: 'Stop test environment (Docker Compose)'
+    condition: always()
