@@ -1,0 +1,20 @@
+parameters:
+  - name: SonarQubeServiceConnection
+    type: string
+    default: "nlst-sonar"
+  - name: SonarQubeProjectKey
+    type: string
+  - name: CoverageReportPaths
+    type: string
+    default: "$(Agent.TempDirectory)/coverage-*.xml"
+
+steps:
+  - task: SonarQubePrepare@7
+    displayName: "Prepare analysis configuration"
+    inputs:
+      SonarQube: ${{ parameters.SonarQubeServiceConnection }}
+      scannerMode: "dotnet"
+      projectKey: ${{ parameters.SonarQubeProjectKey }}
+      extraProperties: |
+        sonar.cs.vscoveragexml.reportsPaths=${{ parameters.CoverageReportPaths }}
+        sonar.scanner.scanAll=false
