@@ -1,0 +1,87 @@
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: boflex-core-mssql-local
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=Your_password123
+    ports:
+      - "1433:1433"
+    networks:
+      - boflexnet
+
+  app:
+    image: boflex-core-longtermplanning-app:latest
+    build:
+      context: ..                           # ← PROJEKT-ROOT!
+      dockerfile: src/Bof.Boflex.Core.LongTermPlanning/Dockerfile  # ← Pfad zum DF
+      args: 
+        AZURE_DEVOPS_PAT: ${AZURE_DEVOPS_PAT}
+    container_name: boflex-core-longtermplanning-app
+    ports:
+      - "1900:5192"
+    environment: #aus appsettings.json von LTP
+      ASPNETCORE_ENVIRONMENT: 'Development'
+      ASPNETCORE_URLS: 'http://0.0.0.0:5192'
+      ConnectionStrings__ServiceBus: '${SERVICEBUS_CONNECTIONSTRING}'
+      ConnectionStrings__db: 'Server=boflex-core-mssql-local,1433;User=sa;Password=Your_password123;TrustServerCertificate=True;Initial Catalog=BoflexCore_Local;'
+      CustomersApiUrl: 'http://boflex-core-customers:5192/'
+      BaseOrderingApiBaseUrl: 'http://boflex-core-baseordering:5192/'
+    depends_on:
+      - mssql
+      - customers
+      - baseordering
+      - rnrp
+    networks:
+      - boflexnet
+      
+  customers:
+    image: crbofacrboflexshared.azurecr.io/bof-core-boflex-customers:latest
+    container_name: boflex-core-customers
+    ports:
+      - "1901:5192"
+    environment: #aus appsettings.json von Customers
+      ASPNETCORE_ENVIRONMENT: 'Development'
+      ASPNETCORE_URLS: 'http://0.0.0.0:5192'
+      ConnectionStrings__db: 'Server=boflex-core-mssql-local,1433;User=sa;Password=Your_password123;TrustServerCertificate=True;Initial Catalog=BoflexCore_Local;'
+      ConnectionStrings__ServiceBus: '${SERVICEBUS_CONNECTIONSTRING}'
+      RestClients__RnRPBaseUrl: 'http://boflex-core-rnrp:5192/'
+    networks:
+    - boflexnet
+      
+  baseordering:
+    image: crbofacrboflexshared.azurecr.io/bof-core-boflex-baseordering:latest
+    container_name: boflex-core-baseordering
+    ports:
+      - "1902:5192"
+    environment: #aus appsettings.json von BaseOrdering
+      ASPNETCORE_ENVIRONMENT: 'Development'
+      ASPNETCORE_URLS: 'http://0.0.0.0:5192'
+      ConnectionStrings__BaseOrderingDb: 'Server=boflex-core-mssql-local,1433;User=sa;Password=Your_password123;TrustServerCertificate=True;Initial Catalog=BoflexCore_Local;'
+      ConnectionStrings__ServiceBus: '${SERVICEBUS_CONNECTIONSTRING}'
+      ApiConfig__CustomerApiUrl: 'http://boflex-core-customers:5192/'
+      ApiConfig__RnRPApiUrl: 'http://app:5192/'
+      ApiConfig__GCMApiUrl: 'http://app:5192/'
+    networks:
+    - boflexnet
+
+  rnrp:
+    image: crbofacrboflexshared.azurecr.io/bof-core-boflex-rnrp:latest
+    container_name: boflex-core-rnrp
+    ports:
+      - "1903:5192"
+    environment: #aus appsettings.json von rnrp
+      ASPNETCORE_ENVIRONMENT: 'Development'
+      ASPNETCORE_URLS: 'http://0.0.0.0:5192'
+      ConnectionStrings__db: 'Server=boflex-core-mssql-local,1433;User=sa;Password=Your_password123;TrustServerCertificate=True;Initial Catalog=BoflexCore_Local;'
+      ConnectionStrings__ServiceBus: '${SERVICEBUS_CONNECTIONSTRING}'
+      GCM-API: 'http://app:5192/'
+      baseordering-api: 'http://boflex-core-baseordering:5192/'
+      CronExpressions__EmployeeScheduleJob: '0 0 12 * * ?'
+    networks:
+    - boflexnet
+
+networks:
+  boflexnet:
+    name: boflexnet
+    driver: bridge
