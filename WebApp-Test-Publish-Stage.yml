@@ -1,0 +1,39 @@
+parameters:
+  - name: ComponentId
+    type: string
+  - name: BuildConfiguration
+    type: string
+    default: "release"
+  - name: TargetFramework
+    type: string
+    default: "net8.0"
+  - name: LowerComponentId
+    type: string
+  - name: Environment
+    type: string
+  - name: DevOpsServiceConnection
+    type: string
+
+
+stages:
+  - stage: "TestAndPublish"
+    displayName: "Test And Publish ${{ parameters.ComponentId }} component REST API and Db package"
+    dependsOn: Build
+    jobs:
+      - job: "TestAndPublish"
+        steps:
+          - checkout: shared
+            path: shared
+
+          - checkout: self
+            path: s
+            fetchDepth: 0
+
+          - template: ../jobs/WebApp-Test-Publish-Job.yml
+            parameters:
+              ComponentId: ${{ parameters.ComponentId }} 
+              BuildConfiguration: ${{ parameters.BuildConfiguration }} 
+              TargetFramework: ${{ parameters.TargetFramework }} 
+              LowerComponentId: ${{ parameters.LowerComponentId }} 
+              Environment: ${{ parameters.Environment }} 
+              DevOpsServiceConnection: ${{ parameters.DevOpsServiceConnection }}
