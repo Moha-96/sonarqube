@@ -1,0 +1,13 @@
+parameters:
+  - name: GatePollingTimeoutSeconds
+    type: number
+    default: 300
+
+steps:
+  - task: SonarQubeAnalyze@7
+    displayName: 'SonarQube: Run analysis'
+
+  - task: SonarQubePublish@7
+    displayName: 'SonarQube: Publish & wait for Quality Gate'
+    inputs:
+      pollingTimeoutSec: '${{ parameters.GatePollingTimeoutSeconds }}'
